@@ -16,10 +16,8 @@ namespace samurai
     {
         static_assert(IsSetTraverserRange<SetTraverserRange>::value);
 
-        using ChildIterator       = typename SetTraverserRange::Iterator;
-        using const_ChildIterator = typename SetTraverserRange::constIterator;
-
-        using Translation = typename ChildIterator::value_type::value_type;
+        using ChildIterator = typename SetTraverserRange::Iterator;
+        using Translation   = typename ChildIterator::value_type::value_type;
 
         class Iterator
         {
@@ -27,23 +25,23 @@ namespace samurai
 
             using iterator_category = std::forward_iterator_tag;
             using difference_type   = std::ptrdiff_t;
-            using value_type        = TranslationTraverser<typename InnerIterator::value_type>;
+            using value_type        = TranslationTraverser<typename SetTraverserRange::Element>;
             using reference         = value_type;
 
-            Iterator(const InnerIterator innerIterator, const Translation& translation)
-                : m_innerIterator(innerIterator)
+            Iterator(const ChildIterator childIterator, const Translation& translation)
+                : m_childIterator(childIterator)
                 , m_translation(translation)
             {
             }
 
             reference operator*() const
             {
-                return reference(*m_innerIterator, m_translation);
+                return reference(*m_childIterator, m_translation);
             }
 
             Iterator& operator++()
             {
-                ++m_innerIterator;
+                ++m_childIterator;
                 return *this;
             }
 
@@ -56,17 +54,17 @@ namespace samurai
 
             friend bool operator==(const Iterator& a, const Iterator& b)
             {
-                return a.m_innerIterator == b.m_innerIterator;
+                return a.m_childIterator == b.m_childIterator;
             };
 
             friend bool operator!=(const Iterator& a, const Iterator& b)
             {
-                return a.m_innerIterator != b.m_innerIterator;
+                return a.m_childIterator != b.m_childIterator;
             };
 
           private:
 
-            ChildIterator m_innerIterator;
+            ChildIterator m_childIterator;
             Translation m_translation;
         };
     };

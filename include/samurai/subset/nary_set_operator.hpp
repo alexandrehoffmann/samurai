@@ -4,6 +4,7 @@
 #pragma once
 
 #include "set_base.hpp"
+#include "traverser_ranges/nary_traverser_range.hpp"
 #include "traversers/difference_id_traverser.hpp"
 #include "traversers/difference_traverser.hpp"
 #include "traversers/intersection_traverser.hpp"
@@ -30,6 +31,9 @@ namespace samurai
         template <std::size_t d>
         using traverser_t = UnionTraverser<typename Sets::template traverser_t<d>...>;
 
+        template <std::size_t d>
+        using traverser_range_t = NaryOperatorTraverserRange<NAryTraverserType::UNION, typename Sets::template traverser_range_t<d>...>;
+
         static constexpr std::size_t dim()
         {
             return std::tuple_element_t<0, std::tuple<Sets...>>::dim;
@@ -43,6 +47,9 @@ namespace samurai
 
         template <std::size_t d>
         using traverser_t = IntersectionTraverser<typename Sets::template traverser_t<d>...>;
+
+        template <std::size_t d>
+        using traverser_range_t = NaryOperatorTraverserRange<NAryTraverserType::INTERSECTION, typename Sets::template traverser_range_t<d>...>;
 
         static constexpr std::size_t dim()
         {
@@ -59,6 +66,12 @@ namespace samurai
         using traverser_t = std::conditional_t<d == 0,
                                                DifferenceTraverser<typename Sets::template traverser_t<d>...>,
                                                DifferenceIdTraverser<typename Sets::template traverser_t<d>...>>;
+
+        template <std::size_t d>
+        using traverser_range_t = std::conditional_t<
+            d == 0,
+            NaryOperatorTraverserRange<NAryTraverserType::DIFFERENCE, typename Sets::template traverser_range_t<d>...>,
+            NaryOperatorTraverserRange<NAryTraverserType::DIFFERENCE_ID, typename Sets::template traverser_range_t<d>...>>;
 
         static constexpr std::size_t dim()
         {
@@ -153,6 +166,13 @@ namespace samurai
             return get_traverser_impl_detail(index, d_ic, std::make_index_sequence<nIntervals>{});
         }
 
+        template <class index_min_t, class index_max_t, std::size_t d>
+        inline traverser_range_t<d>
+        get_traverser_impl(const index_min_t& index_min, const index_max_t& index_max, std::integral_constant<std::size_t, d> d_ic) const
+        {
+            return get_traverser_range_impl_detail(index_min, index_max, d_ic, std::make_index_sequence<nIntervals>{});
+        }
+
       private:
 
         template <class index_t, std::size_t d, std::size_t... Is>
@@ -160,6 +180,16 @@ namespace samurai
         get_traverser_impl_detail(const index_t& index, std::integral_constant<std::size_t, d> d_ic, std::index_sequence<Is...>) const
         {
             return traverser_t<d>(m_shifts, std::get<Is>(m_sets).get_traverser(index >> m_shifts[Is], d_ic)...);
+        }
+
+        template <class index_min_t, class index_max_t, std::size_t d, std::size_t... Is>
+        inline traverser_range_t<d> get_traverser_range_impl_detail(const index_min_t& index_min,
+                                                                    const index_max_t& index_max,
+                                                                    std::integral_constant<std::size_t, d> d_ic,
+                                                                    std::index_sequence<Is...>) const
+        {
+            return traverser_range_t<d>(m_shifts,
+                                        std::get<Is>(m_sets).get_traverser(index_min >> m_shifts[Is], index_max >> m_shifts[Is], d_ic)...);
         }
 
         Childrens m_sets;

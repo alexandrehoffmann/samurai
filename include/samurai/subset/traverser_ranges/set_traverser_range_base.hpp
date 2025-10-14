@@ -23,6 +23,7 @@ namespace samurai
         using DerivedTraits = SetTraverserRangeTraits<Derived>;
 
         using Iterator = typename DerivedTraits::Iterator;
+        using Element  = typename Iterator::reference;
 
         const Derived& derived_cast() const
         {
@@ -43,6 +44,11 @@ namespace samurai
         {
             derived_cast().end_impl();
         }
+
+        Element front()
+        {
+            return *begin();
+        }
     };
 
     template <typename T>
@@ -50,8 +56,9 @@ namespace samurai
     {
     };
 
-#define SAMURAI_SET_TRAVERSER_RANGE_TYPEDEFS \
-    using Base     = SetTraverserBase<Self>; \
-    using Iterator = typename Base::Iterator;
+#define SAMURAI_SET_TRAVERSER_RANGE_TYPEDEFS  \
+    using Base     = SetTraverserBase<Self>;  \
+    using Iterator = typename Base::Iterator; \
+    using Element  = typename Base::Element;
 
 } // namespace samurai

@@ -3,10 +3,10 @@
 
 #pragma once
 
-#include "../difference_id_traverser.hpp"
-#include "../difference_traverser.hpp"
-#include "../intersection_traverser.hpp"
-#include "../union_traverser.hpp"
+#include "../traversers/difference_id_traverser.hpp"
+#include "../traversers/difference_traverser.hpp"
+#include "../traversers/intersection_traverser.hpp"
+#include "../traversers/union_traverser.hpp"
 
 namespace samurai
 {

@@ -4,6 +4,7 @@
 #pragma once
 
 #include "nary_traverser_type.hpp"
+#include "set_traverser_range_base.hpp"
 
 namespace samurai
 {
@@ -23,13 +24,14 @@ namespace samurai
 
             using iterator_category = std::forward_iterator_tag;
             using difference_type   = std::ptrdiff_t;
-            using value_type        = typename NAryTraverserType<Op, typename InnerIterators::value_type...>::Type;
+            using value_type        = typename NAryTraverserTypeTraits<Op, typename SetTraverserRanges::Element...>::Type;
             using reference         = value_type;
 
             static constexpr std::size_t nIntervals = std::tuple_size<ChildrenIterators>::value;
 
-            Iterator(const ChildrenIterators& innerIterators)
-                : m_childrenIterators(innerIterators)
+            Iterator(const std::array<std::size_t, nIntervals>& shifts, const ChildrenIterators& childrenIterators)
+                : m_childrenIterators(childrenIterators)
+                , m_shifts(shifts)
             {
             }
 
@@ -63,23 +65,24 @@ namespace samurai
             friend bool operator==(const Iterator& a, const Iterator& b)
             {
                 return a.m_childrenIterators == b.m_childrenIterators;
-            };
+            }
 
             friend bool operator!=(const Iterator& a, const Iterator& b)
             {
                 return a.m_childrenIterators != b.m_childrenIterators;
-            };
+            }
 
           private:
 
             ChildrenIterators m_childrenIterators;
+            const std::array<std::size_t, nIntervals>& m_shifts;
         };
     };
 
     template <NAryTraverserType Op, class... SetTraverserRanges>
     class NaryOperatorTraverserRange : public SetTraverserRangeBase<NaryOperatorTraverserRange<Op, SetTraverserRanges...>>
     {
-        using Self = TranslationTraverserRange<SetTraverserRange>;
+        using Self = NaryOperatorTraverserRange<Op, SetTraverserRanges...>;
 
       public:
 
@@ -87,17 +90,20 @@ namespace samurai
 
         using Childrens = std::tuple<SetTraverserRanges...>;
 
-        TranslationTraverserRange(const SetTraverserRanges&... set_traverser_ranges)
+        static constexpr std::size_t nIntervals = std::tuple_size_v<Childrens>;
+
+        NaryOperatorTraverserRange(const std::array<std::size_t, nIntervals>& shifts, const SetTraverserRanges&... set_traverser_ranges)
             : m_set_traverser_ranges(set_traverser_ranges...)
+            , m_shifts(shifts)
         {
         }
 
         Iterator begin_impl()
         {
             return std::apply(
-                [](auto&... innerIterators) -> Iterator
+                [this](auto&... innerIterators) -> Iterator
                 {
-                    return Iterator(std::make_tuple(innerIterators.begin()...));
+                    return Iterator(m_shifts, std::make_tuple(innerIterators.begin()...));
                 },
                 m_set_traverser_ranges);
         }
@@ -105,9 +111,9 @@ namespace samurai
         Iterator end_impl()
         {
             return std::apply(
-                [](auto&... innerIterators) -> Iterator
+                [this](auto&... innerIterators) -> Iterator
                 {
-                    return Iterator(std::make_tuple(innerIterators.end()...));
+                    return Iterator(m_shifts, std::make_tuple(innerIterators.end()...));
                 },
                 m_set_traverser_ranges);
         }
@@ -115,6 +121,7 @@ namespace samurai
       private:
 
         Childrens m_set_traverser_ranges;
+        const std::array<std::size_t, nIntervals>& m_shifts;
     };
 
 } // namespace samurai

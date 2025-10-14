@@ -26,9 +26,6 @@ namespace samurai
     template <class Set>
     class Projection;
 
-    template <class Set>
-    class ProjectionLOI;
-
     template <class Set, class Func>
     void apply(const SetBase<Set>& set, Func&& func);
 
@@ -55,7 +52,7 @@ namespace samurai
         using to_lca_t       = LevelCellArray<DerivedTraits::dim(), interval_t>;
         using to_lca_coord_t = typename to_lca_t::coords_t;
 
-        using ProjectionMethod = std::conditional_t<default_config::prediction_with_list_of_intervals, ProjectionLOI<Derived>, Projection<Derived>>;
+        using ProjectionMethod = Projection<Derived>;
 
         static constexpr std::size_t dim = DerivedTraits::dim();
 
@@ -207,7 +204,6 @@ namespace samurai
 } // namespace samurai
 
 #include "projection.hpp"
-#include "projection_loi.hpp"
 
 namespace samurai
 {
