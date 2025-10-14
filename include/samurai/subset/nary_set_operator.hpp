@@ -188,8 +188,9 @@ namespace samurai
                                                                     std::integral_constant<std::size_t, d> d_ic,
                                                                     std::index_sequence<Is...>) const
         {
-            return traverser_range_t<d>(m_shifts,
-                                        std::get<Is>(m_sets).get_traverser(index_min >> m_shifts[Is], index_max >> m_shifts[Is], d_ic)...);
+            return traverser_range_t<d>(
+                m_shifts,
+                std::get<Is>(m_sets).get_traverser_range(index_min >> m_shifts[Is], index_max >> m_shifts[Is], d_ic)...);
         }
 
         Childrens m_sets;

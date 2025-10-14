@@ -3,8 +3,6 @@
 
 #pragma once
 
-#include <span>
-
 #include "../projection_type.hpp"
 #include "set_traverser_base.hpp"
 
@@ -110,7 +108,7 @@ namespace samurai
                     }
                 }
                 // try to find a new end
-                for (const SetTraverser& set_traverser : m_set_traversers)
+                for (const SetTraverser set_traverser : m_set_traversers)
                 {
                     // there is an overlap
                     if (!set_traverser.is_empty() && (coarsen_start(set_traverser.current_interval()) <= m_current_interval.end))
