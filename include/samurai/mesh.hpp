@@ -20,6 +20,7 @@
 #ifdef SAMURAI_WITH_MPI
 #include <boost/serialization/vector.hpp>
 
+#include "mpi/subdomain_bbox.hpp"
 #include <boost/mpi.hpp>
 #include <boost/mpi/cartesian_communicator.hpp>
 namespace mpi = boost::mpi;
@@ -27,6 +28,47 @@ namespace mpi = boost::mpi;
 
 namespace samurai
 {
+    namespace detail
+    {
+        template <std::size_t d, std::size_t dim>
+        void get_periodic_directions(std::array<bool, dim> is_periodic,
+                                     std::vector<DirectionVector<dim>>& directions,
+                                     DirectionVector<dim>& current)
+        {
+            auto next = [&]()
+            {
+                if constexpr (d == dim - 1)
+                {
+                    directions.push_back(current);
+                }
+                else
+                {
+                    get_periodic_directions<d + 1>(is_periodic, directions, current);
+                }
+            };
+
+            if (is_periodic[d])
+            {
+                current[d] = -1;
+                next();
+
+                current[d] = 1;
+                next();
+            }
+            current[d] = 0;
+            next();
+        }
+
+        template <std::size_t dim>
+        auto get_periodic_directions(const std::array<bool, dim>& is_periodic)
+        {
+            DirectionVector<dim> current{};
+            std::vector<DirectionVector<dim>> directions;
+            get_periodic_directions<0>(is_periodic, directions, current);
+            directions.pop_back();
+            return directions;
+        }
+    }
 
     template <class CellArray, class MeshID>
     struct MeshIDArray : private std::array<CellArray, static_cast<std::size_t>(MeshID::count)>
@@ -165,8 +207,6 @@ namespace samurai
         CellOwnership& cell_ownership();
         const CellOwnership& cell_ownership() const;
 
-        void find_neighbourhood();
-
       protected:
 
         using derived_type = D;
@@ -217,6 +257,7 @@ namespace samurai
         void construct_corners();
         void update_sub_mesh();
         void renumbering();
+        void find_neighbourhood();
 
         void compute_gravity_center();
 
@@ -224,6 +265,13 @@ namespace samurai
         void load_balancing();
         void load_transfer(const std::vector<double>& load_fluxes);
         std::size_t max_nb_cells(std::size_t level) const;
+
+#ifdef SAMURAI_WITH_MPI
+        // Helper methods for optimized neighbor finding
+        void add_periodic_candidates(const std::vector<mpi_neighbor::SubdomainBoundingBox<dim>>& all_bboxes,
+                                     const mpi_neighbor::SubdomainBoundingBox<dim>& my_bbox,
+                                     std::set<int>& candidates) const;
+#endif
 
         lca_type m_domain;
         lca_type m_subdomain;
@@ -287,10 +335,14 @@ namespace samurai
 #else
         this->m_cells[mesh_id_t::cells][m_config.start_level()] = m_domain;
 #endif
-        update_meshid_neighbour(mesh_id_t::cells);
 
         construct_subdomain();
         construct_union();
+#ifdef SAMURAI_WITH_MPI
+        find_neighbourhood();
+        update_neighbour_subdomain();
+#endif
+        update_meshid_neighbour(mesh_id_t::cells);
         update_sub_mesh();
         construct_corners();
         renumbering();
@@ -336,11 +388,15 @@ namespace samurai
 
         m_cells[mesh_id_t::cells] = {domain_cl, false};
 #endif
-        update_meshid_neighbour(mesh_id_t::cells);
 
         construct_subdomain();
         m_domain = m_subdomain;
         construct_union();
+#ifdef SAMURAI_WITH_MPI
+        find_neighbourhood();
+        update_neighbour_subdomain();
+#endif
+        update_meshid_neighbour(mesh_id_t::cells);
         update_sub_mesh();
         construct_corners();
         renumbering();
@@ -358,11 +414,15 @@ namespace samurai
         : m_config(config)
     {
         m_cells[mesh_id_t::cells] = {cl, false};
-        update_meshid_neighbour(mesh_id_t::cells);
 
         construct_subdomain();
         construct_domain();
+#ifdef SAMURAI_WITH_MPI
+        find_neighbourhood();
+        update_neighbour_subdomain();
+#endif
         construct_union();
+        update_meshid_neighbour(mesh_id_t::cells);
         update_sub_mesh();
         construct_corners();
         renumbering();
@@ -380,11 +440,15 @@ namespace samurai
         : m_config(config)
     {
         m_cells[mesh_id_t::cells] = ca;
-        update_meshid_neighbour(mesh_id_t::cells);
 
         construct_subdomain();
         construct_domain();
+#ifdef SAMURAI_WITH_MPI
+        find_neighbourhood();
+        update_neighbour_subdomain();
+#endif
         construct_union();
+        update_meshid_neighbour(mesh_id_t::cells);
         update_sub_mesh();
         construct_corners();
         renumbering();
@@ -403,10 +467,14 @@ namespace samurai
         , m_config(ref_mesh.m_config)
     {
         m_cells[mesh_id_t::cells] = ca;
-        update_meshid_neighbour(mesh_id_t::cells);
 
         construct_subdomain();
         construct_union();
+#ifdef SAMURAI_WITH_MPI
+        find_neighbourhood();
+        update_neighbour_subdomain();
+#endif
+        update_meshid_neighbour(mesh_id_t::cells);
         update_sub_mesh();
         construct_corners();
         renumbering();
@@ -425,10 +493,14 @@ namespace samurai
         , m_config(ref_mesh.m_config)
     {
         m_cells[mesh_id_t::cells] = {cl, false};
-        update_meshid_neighbour(mesh_id_t::cells);
 
         construct_subdomain();
         construct_union();
+#ifdef SAMURAI_WITH_MPI
+        find_neighbourhood();
+        update_neighbour_subdomain();
+#endif
+        update_meshid_neighbour(mesh_id_t::cells);
         update_sub_mesh();
         construct_corners();
         renumbering();
@@ -1071,14 +1143,6 @@ namespace samurai
                                                           });
                           });
         m_subdomain = {lcl};
-#ifdef SAMURAI_WITH_MPI
-        mpi::communicator world;
-        if (m_mpi_neighbourhood.empty() && world.size() > 1)
-        {
-            find_neighbourhood();
-        }
-#endif
-        update_neighbour_subdomain();
     }
 
     template <class D, class Config>
@@ -1120,46 +1184,131 @@ namespace samurai
     {
 #ifdef SAMURAI_WITH_MPI
         mpi::communicator world;
+        const int rank = world.rank();
+        const int size = world.size();
 
-        std::vector<lca_type> neighbours(static_cast<std::size_t>(world.size()));
-        mpi::all_gather(world, m_subdomain, neighbours);
-        std::set<int> set_neighbours;
-        for (std::size_t i = 0; i < neighbours.size(); ++i)
+        // Phase 1: Exchange bounding boxes (64 bytes each vs KB of mesh data)
+        auto my_bbox = mpi_neighbor::compute_subdomain_bbox(m_subdomain);
+        my_bbox.rank = rank;
+
+        std::vector<mpi_neighbor::SubdomainBoundingBox<dim>> all_bboxes(static_cast<std::size_t>(size));
+        mpi::all_gather(world, my_bbox, all_bboxes);
+
+        // Phase 2: Fast screening with bounding boxes
+        std::set<int> candidates;
+
+        for (int i = 0; i < size; ++i)
         {
-            if (i != static_cast<std::size_t>(world.rank()))
+            if (i != rank)
             {
-                auto set = intersection(nestedExpand(m_subdomain, 1), neighbours[i]);
-                if (!set.empty())
+                if (my_bbox.could_be_neighbor(all_bboxes[static_cast<std::size_t>(i)]))
                 {
-                    set_neighbours.insert(static_cast<int>(i));
-                }
-                for (std::size_t d = 0; d < dim; ++d)
-                {
-                    if (m_config.periodic(d))
-                    {
-                        auto shift             = get_periodic_shift(m_domain, m_subdomain.level(), d);
-                        auto periodic_set_left = intersection(nestedExpand(m_subdomain, 1), translate(neighbours[i], -shift));
-                        if (!periodic_set_left.empty())
-                        {
-                            set_neighbours.insert(static_cast<int>(i));
-                        }
-                        auto periodic_set_right = intersection(nestedExpand(m_subdomain, 1), translate(neighbours[i], shift));
-                        if (!periodic_set_right.empty())
-                        {
-                            set_neighbours.insert(static_cast<int>(i));
-                        }
-                    }
+                    candidates.insert(i);
                 }
             }
         }
-        m_mpi_neighbourhood.clear();
-        m_mpi_neighbourhood.reserve(set_neighbours.size());
-        for (const auto& neighbour : set_neighbours)
+
+        // Add periodic boundary candidates
+        if (is_periodic())
         {
-            m_mpi_neighbourhood.emplace_back(neighbour);
+            add_periodic_candidates(all_bboxes, my_bbox, candidates);
         }
+
+        // Phase 3: Precise verification with interval algebra (only for candidates)
+        std::vector<lca_type> candidate_subdomains;
+        candidate_subdomains.reserve(candidates.size());
+
+        // Gather only candidate subdomains
+        std::vector<int> candidate_ranks(candidates.begin(), candidates.end());
+        std::vector<mpi::request> requests;
+        requests.reserve(candidates.size());
+
+        for (int candidate_rank : candidate_ranks)
+        {
+            candidate_subdomains.emplace_back();
+            requests.push_back(world.irecv(candidate_rank, 0, candidate_subdomains.back()));
+        }
+
+        // Send my subdomain to all candidates
+        for (int candidate_rank : candidate_ranks)
+        {
+            requests.push_back(world.isend(candidate_rank, 0, m_subdomain));
+        }
+
+        mpi::wait_all(requests.begin(), requests.end());
+
+        auto directions     = detail::get_periodic_directions(m_config.periodic());
+        auto minmax_indices = m_domain.minmax_indices();
+        xt::xtensor_fixed<value_t, xt::xshape<dim>> domain_size;
+        for (std::size_t d = 0; d < dim; ++d)
+        {
+            domain_size[d] = minmax_indices[d].second - minmax_indices[d].first;
+        }
+
+        // Verify candidates with precise interval algebra
+        // And update neighborhood list
+        m_mpi_neighbourhood.clear();
+        for (std::size_t i = 0; i < candidate_ranks.size(); ++i)
+        {
+            auto set = intersection(nestedExpand(m_subdomain, 1), candidate_subdomains[i]);
+            if (!set.empty())
+            {
+                m_mpi_neighbourhood.emplace_back(candidate_ranks[i]);
+                continue; // No need to check periodic boundaries if they are already neighbors
+            }
+
+            // Check periodic boundaries for this candidate
+            for (const auto& direction : directions)
+            {
+                auto shift        = direction * domain_size;
+                auto periodic_set = intersection(nestedExpand(m_subdomain, 1), translate(candidate_subdomains[i], shift));
+
+                if (!periodic_set.empty())
+                {
+                    m_mpi_neighbourhood.emplace_back(candidate_ranks[i]);
+                    break; // No need to check other directions if we already found a neighbor
+                }
+            }
+        }
+
 #endif
     }
+
+#ifdef SAMURAI_WITH_MPI
+    template <class D, class Config>
+    void Mesh_base<D, Config>::add_periodic_candidates(const std::vector<mpi_neighbor::SubdomainBoundingBox<dim>>& all_bboxes,
+                                                       const mpi_neighbor::SubdomainBoundingBox<dim>& my_bbox,
+                                                       std::set<int>& candidates) const
+    {
+        // For periodic boundaries, we need to check if subdomains could be neighbors
+        // when wrapped around the periodic boundaries
+        auto directions = detail::get_periodic_directions(m_config.periodic());
+
+        auto domain_size = xt::eval(m_domain.max_corner() - m_domain.min_corner());
+
+        for (const auto& other_bbox : all_bboxes)
+        {
+            if (other_bbox.rank == my_bbox.rank || candidates.contains(other_bbox.rank))
+            {
+                continue;
+            }
+            for (const auto& direction : directions)
+            {
+                // Check if bboxes could be neighbors through periodic boundary
+                // by virtually shifting the other bbox by +/- domain_size
+                mpi_neighbor::SubdomainBoundingBox<dim> shifted_bbox = other_bbox;
+                shifted_bbox.bbox.min_corner() += direction * domain_size;
+                shifted_bbox.bbox.max_corner() += direction * domain_size;
+
+                if (my_bbox.could_be_neighbor(shifted_bbox))
+                {
+                    candidates.insert(other_bbox.rank);
+                    break;
+                }
+            }
+        }
+    }
+#endif
 
     template <class D, class Config>
     void Mesh_base<D, Config>::partition_mesh([[maybe_unused]] std::size_t start_level, [[maybe_unused]] const Box<double, dim>& global_box)
