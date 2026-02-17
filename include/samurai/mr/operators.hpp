@@ -288,9 +288,8 @@ namespace samurai
                     {
                         if (std::isnan(qs_i(ii)) || std::isnan(qs_j(ii)) || std::isnan(qs_ij(ii)))
                         {
-                            std::cerr << "NaN detected during the computation of details." << std::endl;
-                            save(fs::current_path(), "check_nan", {true, true}, field.mesh(), field);
-                            break;
+                            local_save(fs::current_path(), "check_nan", {true, true}, field.mesh(), field);
+                            throw std::runtime_error(fmt::format("NaN detected during the computation of details at level {}.", level));
                         }
                     }
                 }
@@ -298,8 +297,8 @@ namespace samurai
                 {
                     if (xt::any(xt::isnan(qs_ij)))
                     {
-                        std::cerr << "NaN detected during the computation of details." << std::endl;
-                        save(fs::current_path(), "check_nan", {true, true}, field.mesh(), field);
+                        local_save(fs::current_path(), "check_nan", {true, true}, field.mesh(), field);
+                        throw std::runtime_error(fmt::format("NaN detected during the computation of details at level {}.", level));
                     }
                 }
 #endif
@@ -373,6 +372,7 @@ namespace samurai
             static constexpr std::size_t dim    = Field::dim;
             static constexpr std::size_t n_comp = Field::n_comp;
             static constexpr bool is_soa        = detail::is_soa_v<Field>;
+            static constexpr bool is_scalar     = false;
 
             using interval_t    = typename Field::interval_t;
             using coord_index_t = typename interval_t::coord_index_t;
